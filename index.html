@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WebSocket Connection with Microphone</title>
+</head>
+<body>
+<h2>Connect to WebSocket</h2>
+
+<label for="wsUrl">WebSocket Address:</label>
+<input type="text" id="wsUrl" value="ws://localhost:8765">
+<button onclick="connectWebSocket()">Connect</button>
+
+<br><br>
+
+<label for="roomId">Room ID:</label>
+<input type="text" id="roomId" value="1">
+<button onclick="joinRoom('speaker')">Join as Speaker</button>
+<button onclick="joinRoom('listener')">Join as Listener</button>
+
+<br><br>
+
+<label for="languageSelect">Language:</label>
+<select id="languageSelect">
+    <option value="English">English (en)</option>
+    <option value="Spanish">Spanish (es)</option>
+    <option value="German">German (de)</option>
+    <option value="French">French (fr)</option>
+    <option value="Italian">Italian (it)</option>
+<!--    <option value="Ukrainian">Ukrainian (uk)</option>-->
+</select>
+<button onclick="updateSettings()">Update Settings</button>
+
+<br><br>
+
+<button onclick="startMic()">🎙️ Turn On Microphone</button>
+<button onclick="stopMic()">🔇 Turn Off Microphone</button>
+
+<pre id="log" style="background:#f4f4f4; padding:10px; max-width:95%; min-height:200px;"></pre>
+
+<script>
+    let socket = null;
+    let audioContext;
+    let mediaStream;
+    let processor;
+    let isMicEnabled = false;
+    let client_role = null;
+
+    function log(msg) {
+        const logElem = document.getElementById("log");
+        logElem.textContent += msg + "\n";
+    }
+
+    function connectWebSocket() {
+        const url = document.getElementById("wsUrl").value;
+        socket = new WebSocket(url);
+
+        socket.binaryType = "arraybuffer";
+
+        socket.onopen = () => log("✅ Connected to " + url);
+        socket.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                const text = JSON.stringify(data);
+                log("📨 Received: " + text);
+            } catch (e) {
+                log("📨 Received: " + event.data);
+            }
+        };
+        socket.onclose = () => {
+            log("❌ Connection closed");
+            stopMic();
+        };
+        socket.onerror = (error) => log("⚠️ Error: " + error);
+    }
+
+    function joinRoom(role) {
+        const roomId = document.getElementById("roomId").value;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const message = {
+                type: "join_room",
+                room_id: roomId,
+                role: role
+            };
+            socket.send(JSON.stringify(message));
+            client_role = role
+            log("📤 Sent: " + JSON.stringify(message));
+        } else {
+            log("⚠️ WebSocket not connected");
+        }
+    }
+
+    function updateSettings() {
+        const lang = document.getElementById("languageSelect").value;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const config = {
+                type: "config",
+                data: {}
+            };
+            config.data["listen_lang"] = lang;
+            if (client_role === "speaker") {
+                config.data["language"] = lang;
+            }
+            socket.send(JSON.stringify(config));
+            log("⚙️ Sent config: " + JSON.stringify(config));
+        } else {
+            log("⚠️ WebSocket not connected");
+        }
+    }
+
+    async function startMic() {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+            log("⚠️ Connect to WebSocket first!");
+            return;
+        }
+
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+            mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
+            const source = audioContext.createMediaStreamSource(mediaStream);
+
+            processor = audioContext.createScriptProcessor(4096, 1, 1);
+            source.connect(processor);
+            processor.connect(audioContext.destination);
+
+            isMicEnabled = true;
+            log("🎙️ Microphone turned on");
+
+            processor.onaudioprocess = (event) => {
+                const inputData = event.inputBuffer.getChannelData(0);
+                const int16Data = convertFloat32ToInt16(inputData);
+                socket.send(int16Data);
+            };
+        } catch (err) {
+            log("🚫 Failed to turn on microphone: " + err.message);
+        }
+    }
+
+    function stopMic() {
+        if (isMicEnabled) {
+            if (processor) {
+                processor.disconnect();
+                processor = null;
+            }
+            if (mediaStream) {
+                mediaStream.getTracks().forEach(track => track.stop());
+                mediaStream = null;
+            }
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+
+            log("🔇 Microphone turned off");
+        }
+    }
+
+    function convertFloat32ToInt16(buffer) {
+        const l = buffer.length;
+        const result = new Int16Array(l);
+        for (let i = 0; i < l; i++) {
+            result[i] = Math.min(1, buffer[i]) * 0x7FFF;
+        }
+        return result.buffer;
+    }
+</script>
+</body>
+</html>
