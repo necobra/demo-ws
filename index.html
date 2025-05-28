@@ -46,6 +46,21 @@
     let isMicEnabled = false;
     let client_role = null;
 
+    let mediaSource = new MediaSource();
+    let audio = new Audio();
+    audio.src = URL.createObjectURL(mediaSource);
+
+    let sourceBuffer;
+    mediaSource.addEventListener('sourceopen', () => {
+        sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+    });
+
+    function playIncomingAudio(arrayBuffer) {
+        if (sourceBuffer && !sourceBuffer.updating) {
+            sourceBuffer.appendBuffer(new Uint8Array(arrayBuffer));
+        }
+    }
+
     function log(msg) {
         const logElem = document.getElementById("log");
         logElem.textContent += msg + "\n";
@@ -59,7 +74,7 @@
 
         socket.onopen = () => log("✅ Connected to " + url);
         socket.onmessage = (event) => {
-           if (typeof event.data === "string") {
+            if (typeof event.data === "string") {
                 try {
                     const data = JSON.parse(event.data);
                     log("📨 Received: " + JSON.stringify(data));
@@ -92,6 +107,7 @@
         } else {
             log("⚠️ WebSocket not connected");
         }
+        audio.play();
     }
 
     function updateSettings() {
@@ -117,29 +133,31 @@
             log("⚠️ Connect to WebSocket first!");
             return;
         }
+        if (client_role === "speaker") {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+                mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
+                const source = audioContext.createMediaStreamSource(mediaStream);
 
-        try {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
-            mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
-            const source = audioContext.createMediaStreamSource(mediaStream);
+                processor = audioContext.createScriptProcessor(4096, 1, 1);
+                source.connect(processor);
+                processor.connect(audioContext.destination);
 
-            processor = audioContext.createScriptProcessor(4096, 1, 1);
-            source.connect(processor);
-            processor.connect(audioContext.destination);
+                isMicEnabled = true;
+                log("🎙️ Microphone turned on");
 
-            isMicEnabled = true;
-            log("🎙️ Microphone turned on");
+                processor.onaudioprocess = (event) => {
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    const int16Data = convertFloat32ToInt16(inputData);
+                    socket.send(int16Data);
 
-            processor.onaudioprocess = (event) => {
-                const inputData = event.inputBuffer.getChannelData(0);
-                const int16Data = convertFloat32ToInt16(inputData);
-                socket.send(int16Data);
+                };
 
-            };
-
-        } catch (err) {
-            log("🚫 Failed to turn on microphone: " + err.message);
+            } catch (err) {
+                log("🚫 Failed to turn on microphone: " + err.message);
+            }
         }
+
     }
 
     function stopMic() {
@@ -178,21 +196,9 @@
         return result.buffer;
     }
 
-    let mediaSource = new MediaSource();
-    let audio = new Audio();
-    audio.src = URL.createObjectURL(mediaSource);
 
-    let sourceBuffer;
-    mediaSource.addEventListener('sourceopen', () => {
-        sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
-    });
 
-    function playIncomingAudio(arrayBuffer) {
-        if (sourceBuffer && !sourceBuffer.updating) {
-            sourceBuffer.appendBuffer(new Uint8Array(arrayBuffer));
-        }
-    }
-    audio.play();
+
 </script>
 </body>
 </html>
