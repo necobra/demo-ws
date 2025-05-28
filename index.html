@@ -118,9 +118,7 @@
                 data: {}
             };
             config.data["listen_lang"] = lang;
-            if (client_role === "speaker") {
-                config.data["language"] = lang;
-            }
+            config.data["language"] = lang;
             socket.send(JSON.stringify(config));
             log("⚙️ Sent config: " + JSON.stringify(config));
         } else {
