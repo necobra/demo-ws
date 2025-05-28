@@ -27,7 +27,7 @@
     <option value="German">German (de)</option>
     <option value="French">French (fr)</option>
     <option value="Italian">Italian (it)</option>
-<!--    <option value="Ukrainian">Ukrainian (uk)</option>-->
+    <!--    <option value="Ukrainian">Ukrainian (uk)</option>-->
 </select>
 <button onclick="updateSettings()">Update Settings</button>
 
@@ -59,12 +59,16 @@
 
         socket.onopen = () => log("✅ Connected to " + url);
         socket.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                const text = JSON.stringify(data);
-                log("📨 Received: " + text);
-            } catch (e) {
-                log("📨 Received: " + event.data);
+           if (typeof event.data === "string") {
+                try {
+                    const data = JSON.parse(event.data);
+                    log("📨 Received: " + JSON.stringify(data));
+                } catch (e) {
+                    log("📨 Received: " + event.data);
+                }
+            } else if (event.data instanceof ArrayBuffer) {
+                log("🎧 Received audio data: " + event.data.byteLength + " bytes");
+                playIncomingAudio(event.data);
             }
         };
         socket.onclose = () => {
@@ -130,7 +134,9 @@
                 const inputData = event.inputBuffer.getChannelData(0);
                 const int16Data = convertFloat32ToInt16(inputData);
                 socket.send(int16Data);
+
             };
+
         } catch (err) {
             log("🚫 Failed to turn on microphone: " + err.message);
         }
@@ -152,17 +158,41 @@
             }
 
             log("🔇 Microphone turned off");
+            isMicEnabled = false;
+
+            socket.send(JSON.stringify({
+                type: "info",
+                message: "micro_off"
+            }));
         }
     }
 
     function convertFloat32ToInt16(buffer) {
-        const l = buffer.length;
-        const result = new Int16Array(l);
+        let l = buffer.length;
+        let result = new Int16Array(l);
         for (let i = 0; i < l; i++) {
-            result[i] = Math.min(1, buffer[i]) * 0x7FFF;
+            let s = Math.max(-1, Math.min(1, buffer[i]));
+            // Стандартний варіант:
+            result[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
         }
         return result.buffer;
     }
+
+    let mediaSource = new MediaSource();
+    let audio = new Audio();
+    audio.src = URL.createObjectURL(mediaSource);
+
+    let sourceBuffer;
+    mediaSource.addEventListener('sourceopen', () => {
+        sourceBuffer = mediaSource.addSourceBuffer('audio/mpeg');
+    });
+
+    function playIncomingAudio(arrayBuffer) {
+        if (sourceBuffer && !sourceBuffer.updating) {
+            sourceBuffer.appendBuffer(new Uint8Array(arrayBuffer));
+        }
+    }
+    audio.play();
 </script>
 </body>
 </html>
