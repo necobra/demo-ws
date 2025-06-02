@@ -8,7 +8,7 @@
 <h2>Connect to WebSocket</h2>
 
 <label for="wsUrl">WebSocket Address:</label>
-<input type="text" id="wsUrl" value="wss://eb74-109-236-81-134.ngrok-free.app">
+<input type="text" id="wsUrl" value="wss://eb74-109-236-81-134.ngrok-free.app/ws">
 <button onclick="connectWebSocket()">Connect</button>
 
 <br><br>
@@ -35,6 +35,8 @@
 
 <button onclick="startMic()">🎙️ Turn On Microphone</button>
 <button onclick="stopMic()">🔇 Turn Off Microphone</button>
+
+<div id="role-actions"></div>
 
 <pre id="log" style="background:#f4f4f4; padding:10px; max-width:95%; min-height:200px;"></pre>
 
@@ -104,6 +106,7 @@
             socket.send(JSON.stringify(message));
             client_role = role
             log("📤 Sent: " + JSON.stringify(message));
+            setRoleActions(role);  // Додаємо цю лінію
         } else {
             log("⚠️ WebSocket not connected");
         }
@@ -131,29 +134,27 @@
             log("⚠️ Connect to WebSocket first!");
             return;
         }
-        if (client_role === "speaker") {
-            try {
-                audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
-                mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
-                const source = audioContext.createMediaStreamSource(mediaStream);
+        try {
+            audioContext = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 16000});
+            mediaStream = await navigator.mediaDevices.getUserMedia({audio: true});
+            const source = audioContext.createMediaStreamSource(mediaStream);
 
-                processor = audioContext.createScriptProcessor(4096, 1, 1);
-                source.connect(processor);
-                processor.connect(audioContext.destination);
+            processor = audioContext.createScriptProcessor(4096, 1, 1);
+            source.connect(processor);
+            processor.connect(audioContext.destination);
 
-                isMicEnabled = true;
-                log("🎙️ Microphone turned on");
+            isMicEnabled = true;
+            log("🎙️ Microphone turned on");
 
-                processor.onaudioprocess = (event) => {
-                    const inputData = event.inputBuffer.getChannelData(0);
-                    const int16Data = convertFloat32ToInt16(inputData);
-                    socket.send(int16Data);
+            processor.onaudioprocess = (event) => {
+                const inputData = event.inputBuffer.getChannelData(0);
+                const int16Data = convertFloat32ToInt16(inputData);
+                socket.send(int16Data);
 
-                };
+            };
 
-            } catch (err) {
-                log("🚫 Failed to turn on microphone: " + err.message);
-            }
+        } catch (err) {
+            log("🚫 Failed to turn on microphone: " + err.message);
         }
 
     }
@@ -194,7 +195,70 @@
         return result.buffer;
     }
 
+    function setRoleActions(role) {
+        const container = document.getElementById('role-actions');
+        container.innerHTML = ''; // очистити попередні кнопки
 
+        if (role === 'listener') {
+            const btn = document.createElement('button');
+            btn.textContent = 'Raise hand ✋';
+            btn.onclick = sendRaiseHand;
+            container.appendChild(btn);
+        }
+        if (role === 'speaker') {
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.id = 'userIdInput';
+            input.placeholder = 'User ID';
+            input.className = 'inline';
+
+            const btnGive = document.createElement('button');
+            btnGive.textContent = 'Give Access';
+            btnGive.className = 'inline';
+            btnGive.onclick = () => sendVoiceAccess('give_voice_access');
+
+            const btnRemove = document.createElement('button');
+            btnRemove.textContent = 'Remove Access';
+            btnRemove.className = 'inline';
+            btnRemove.onclick = () => sendVoiceAccess('remove_voice_access');
+
+            container.appendChild(input);
+            container.appendChild(btnGive);
+            container.appendChild(btnRemove);
+        }
+    }
+
+    function sendRaiseHand() {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const msg = {
+                type: "action",
+                action_type: "raise_hand"
+            };
+            socket.send(JSON.stringify(msg));
+            log("📤 Sent: " + JSON.stringify(msg));
+        } else {
+            log("⚠️ WebSocket not connected");
+        }
+    }
+
+    function sendVoiceAccess(actionType) {
+        const userId = document.getElementById('userIdInput').value;
+        if (!userId) {
+            log("⚠️ Вкажіть User ID");
+            return;
+        }
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            const msg = {
+                type: "action",
+                action_type: actionType,
+                target_id: userId
+            };
+            socket.send(JSON.stringify(msg));
+            log("📤 Sent: " + JSON.stringify(msg));
+        } else {
+            log("⚠️ WebSocket not connected");
+        }
+    }
 
 
 </script>
